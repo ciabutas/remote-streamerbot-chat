@@ -275,8 +275,7 @@
                 meta.appendChild(timeSpan);
 
                 msg.appendChild(meta);
-                container.appendChild(msg);
-                scrollToBottom(container);
+                container.prepend(msg);
             }
 
             // ── Streamer.bot WebSocket Client ────────────────────────────────────────────
@@ -294,17 +293,41 @@
 
             // ── Chat message handlers ────────────────────────────────────────────────────
 
+            function colorFromName(name) {
+                let hash = 0;
+                for (let i = 0; i < name.length; i++) {
+                    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+                }
+                const h = Math.abs(hash) % 360;
+                return `hsl(${h}, 70%, 65%)`;
+            }
+
             function handleChatMessage(e) {
                 const { data, event } = e;
                 if (!data) return;
 
-                const username =
-                    data.user?.name || data.user?.login || "Unknown";
-                const displayName = data.user?.displayName || username;
-                const color = data.user?.color || "var(--accent)";
-                const messageText = data.text || "";
-                const badges = data.user?.badges || [];
                 const source = event?.source || "Twitch";
+
+                let displayName, color, messageText, badges;
+
+                if (source === "YouTube") {
+                    displayName = data.user?.name || "Unknown";
+                    color = colorFromName(displayName);
+                    messageText = data.message || "";
+                    badges = [];
+                } else {
+                    // Twitch: text lives at data.message.message, user info at data.message / data.user
+                    displayName =
+                        data.message?.displayName ||
+                        data.user?.name ||
+                        "Unknown";
+                    color =
+                        data.message?.color ||
+                        data.user?.color ||
+                        "var(--twitch)";
+                    messageText = data.message?.message || data.text || "";
+                    badges = data.message?.badges || data.user?.badges || [];
+                }
 
                 const container =
                     source === "YouTube" ? youtubeContainer : twitchContainer;
@@ -318,7 +341,7 @@
             }
 
             client.on("Twitch.ChatMessage", handleChatMessage);
-            client.on("YouTube.ChatMessage", handleChatMessage);
+            client.on("YouTube.Message", handleChatMessage);
         </script>
     </body>
 </html>
