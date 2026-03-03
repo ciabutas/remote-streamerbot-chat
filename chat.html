@@ -68,6 +68,71 @@
                 background: var(--bad);
             }
 
+            #events-bar {
+                background: var(--panel);
+                border-bottom: 2px solid var(--border);
+                overflow: hidden;
+                flex-shrink: 0;
+                position: relative;
+                height: 32px;
+                display: flex;
+                align-items: center;
+            }
+
+            #events-track {
+                display: flex;
+                align-items: center;
+                gap: 24px;
+                white-space: nowrap;
+                animation: ticker linear infinite;
+                animation-duration: 30s;
+                padding-left: 100%;
+            }
+
+            #events-track:empty {
+                animation: none;
+            }
+
+            #events-bar:hover #events-track {
+                animation-play-state: paused;
+            }
+
+            @keyframes ticker {
+                0% {
+                    transform: translateX(0);
+                }
+                100% {
+                    transform: translateX(-100%);
+                }
+            }
+
+            .event-pill {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 12px;
+                padding: 2px 10px;
+                border-radius: 20px;
+                background: var(--border);
+                flex-shrink: 0;
+            }
+
+            .event-pill.twitch {
+                border-left: 3px solid var(--twitch);
+            }
+            .event-pill.youtube {
+                border-left: 3px solid var(--youtube);
+            }
+
+            .event-pill .ep-name {
+                font-weight: 600;
+            }
+
+            .event-pill .ep-type {
+                color: var(--muted);
+                font-size: 11px;
+            }
+
             #columns {
                 flex: 1;
                 display: flex;
@@ -175,6 +240,10 @@
             <div id="status" class="status-connecting">Connecting…</div>
         </header>
 
+        <div id="events-bar">
+            <div id="events-track"></div>
+        </div>
+
         <div id="columns">
             <div class="column">
                 <div class="column-header twitch">
@@ -214,6 +283,83 @@
             const twitchContainer = document.getElementById("chat-twitch");
             const youtubeContainer = document.getElementById("chat-youtube");
             const statusIndicator = document.getElementById("status");
+            const eventsTrack = document.getElementById("events-track");
+
+            const EVENTS_STORAGE_KEY = "eventsHistory";
+            const MAX_STORED_EVENTS = 10;
+
+            function renderEventPill(
+                { source, type, name },
+                shouldAnimate = true,
+            ) {
+                const pill = document.createElement("div");
+                pill.className = "event-pill " + source.toLowerCase();
+
+                if (name) {
+                    const nameSpan = document.createElement("span");
+                    nameSpan.className = "ep-name";
+                    nameSpan.textContent = name;
+                    pill.appendChild(nameSpan);
+                }
+
+                const typeSpan = document.createElement("span");
+                typeSpan.className = "ep-type";
+                typeSpan.textContent = type;
+
+                pill.appendChild(typeSpan);
+                eventsTrack.appendChild(pill);
+
+                if (!shouldAnimate) {
+                    return;
+                }
+            }
+
+            function loadEventHistory() {
+                try {
+                    const stored = JSON.parse(
+                        localStorage.getItem(EVENTS_STORAGE_KEY) || "[]",
+                    );
+                    stored
+                        .slice(0, MAX_STORED_EVENTS)
+                        .reverse()
+                        .forEach((item) => renderEventPill(item, false));
+                } catch {}
+            }
+
+            function saveEventHistory(eventItem) {
+                try {
+                    const stored = JSON.parse(
+                        localStorage.getItem(EVENTS_STORAGE_KEY) || "[]",
+                    );
+                    const next = [eventItem, ...stored].slice(
+                        0,
+                        MAX_STORED_EVENTS,
+                    );
+                    localStorage.setItem(
+                        EVENTS_STORAGE_KEY,
+                        JSON.stringify(next),
+                    );
+                } catch {}
+            }
+
+            const TICKER_PX_PER_SEC = 100;
+
+            function updateTickerDuration() {
+                const w = eventsTrack.scrollWidth;
+                if (w === 0) return;
+                const dur = Math.max(5, w / TICKER_PX_PER_SEC);
+                eventsTrack.style.animationDuration = dur + "s";
+            }
+
+            function addEventPill(source, type, name) {
+                const item = { source, type, name };
+                renderEventPill(item);
+                saveEventHistory(item);
+                updateTickerDuration();
+            }
+
+            loadEventHistory();
+            updateTickerDuration();
 
             function setStatus(state, text) {
                 statusIndicator.className = "status-" + state;
@@ -342,6 +488,45 @@
 
             client.on("Twitch.ChatMessage", handleChatMessage);
             client.on("YouTube.Message", handleChatMessage);
+
+            // ── Events ticker ────────────────────────────────────────────────────────────
+
+            const EXCLUDED_EVENTS = new Set([
+                "ChatMessage",
+                "Message",
+                "StatisticsUpdated",
+                "ViewerCountUpdate",
+                "GoalProgress",
+                "FirstWords",
+                "FirstWord",
+                "Follow",
+            ]);
+
+            function handleTwitchEvent(e) {
+                const { data, event } = e;
+                if (!event) return;
+                const type = event.type;
+                if (EXCLUDED_EVENTS.has(type)) return;
+                const name =
+                    data?.user?.name ||
+                    data?.message?.displayName ||
+                    data?.recipientUser?.name ||
+                    data?.gifter?.name ||
+                    "";
+                addEventPill("Twitch", type, name);
+            }
+
+            function handleYouTubeEvent(e) {
+                const { data, event } = e;
+                if (!event) return;
+                const type = event.type;
+                if (EXCLUDED_EVENTS.has(type)) return;
+                const name = data?.user?.name || data?.sponsor?.name || "";
+                addEventPill("YouTube", type, name);
+            }
+
+            client.on("Twitch.*", handleTwitchEvent);
+            client.on("YouTube.*", handleYouTubeEvent);
         </script>
     </body>
 </html>
